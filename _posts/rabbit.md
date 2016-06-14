@@ -31,11 +31,12 @@ cd rabbitmq/sbin  ./rabbitmq-server -detached实现后台启动
 ##  解决无法远程连接的问题
 由于默认帐号guest只能通过localhost登陆使用，所以需要添加新的用户
 ```
-增加一个用户 	 ./rabbitmqctl add_usr Username Password
+增加一个用户 	 ./rabbitmqctl add_user Username Password
 删除一个用户 	 ./rabbitmqctl delete_usr Username
 修改用户的密码   ./rabbitmqctl change_password Username Newpassword
 查看当前用户列表 ./rabbitmqctl list_users
-用户权限	 ./rabbitmqctl set_user_tags Username Tag
-		  (Tag对应adminis)
+用户角色	 ./rabbitmqctl set_user_tags Username Tag
+		  (Tag 可设置为管理员administrator)
+用户权限设置     ./rabbitmqctl set_permissions -p / Username ".*" ".*" ".*" 
 ```
 
