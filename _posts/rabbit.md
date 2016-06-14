@@ -56,7 +56,7 @@ $chmod 400 .erlang.cookie
 修改各节点主机的/etc/hosts文件，以确保各个计算机可以互相解析
 10.0.8.1 n1
 10.0.8.2 n2
-10.0.8.2 n3
+10.0.8.3 n3
 准备工作已经完成，集群构建只需把其他节点添加到一台节点中即可，这里采用将n2 n3添加到n1上，无特殊说明下面的步骤在n2 n3上都要做。
 ```
 $cd /rabbitmq/sbin
@@ -75,4 +75,4 @@ $./rabbitmqctl join_cluster n1
 $./rabbitmqctl join_cluster n1
 $./rabbitmqctl start_app
 ```
-
+开启集群的所有节点，可进入rabbit的web管理界面查看集群是否正常运行
