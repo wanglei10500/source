@@ -1,5 +1,8 @@
 ---
 title: Markdown 语法
+tags:
+ - Markdown
+categories: 笔记
 ---
 ## 标题
 在文字开头加上"#"，通过"#"数量表示几级标题(一共有1-6级标题，1级标题字体最大)

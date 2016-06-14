@@ -1,5 +1,8 @@
 ---
 title: Linux下 rabbit MQ单机环境和集群环境的搭建
+tags:
+ - rabbit MQ
+categories: 环境搭建
 ---
 ## Erlang的安装
 由于rabbit MQ基于Erlang。所以必须先安装Erlang环境。
