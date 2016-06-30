@@ -33,12 +33,15 @@ cd rabbitmq/sbin  ./rabbitmq-server -detached实现后台启动
 rabbit默认帐号guest只能通过localhost登陆使用，官方文档对此的描述为"guest" user can only connect via localhost  所以需要添加新的用户
 ```
 增加一个用户 	 ./rabbitmqctl add_user Username Password
-删除一个用户 	 ./rabbitmqctl delete_usr Username
+删除一个用户 	 ./rabbitmqctl delete_user Username
 修改用户的密码   ./rabbitmqctl change_password Username Newpassword
 查看当前用户列表 ./rabbitmqctl list_users
 用户角色	 ./rabbitmqctl set_user_tags Username Tag
 		  (Tag 可设置为管理员administrator)
-用户权限设置     ./rabbitmqctl set_permissions -p / Username ".*" ".*" ".*" 
+      用户权限设置     ./rabbitmqctl set_permissions -p / Username ".*" ".*" ".*" 
+
+进建虚拟主机   ./rabbitmqctl add_vhost testHost
+为用户分配虚拟主机权限 ./rabbitmqctl set_permissions -p testHost Username ".*" ".*" ".*"
 ```
 ## 集群环境搭建
 
@@ -61,18 +64,26 @@ $chmod 400 .erlang.cookie
 ```
 $cd /rabbitmq/sbin
 $./rabbitmq-server -detached //三个结点都启动
-$./rabbitmqctl status //查看状态
-$./rabbitmqctl stop_app //关闭节点
-$./rabbitmqctl reset
 
+$./rabbitmqctl status //查看状态
+$./rabbitmqctl cluster_status // 查看broker的集群状态
+$./rabbitmqctl stop_app //关闭节点
+
+
+```
+在n1上：
+```
+$./rabbitmqctl start_app
 ```
 在n2上：
 ```
-$./rabbitmqctl join_cluster n1
+$./rabbitmqctl join_cluster rabbit@n1
+$./rabbitmqctl start_app
 ```
 在n3上：
 ```
-$./rabbitmqctl join_cluster n1
+$./rabbitmqctl join_cluster rabbit@n1
 $./rabbitmqctl start_app
 ```
+
 开启集群的所有节点，可进入rabbit的web管理界面查看集群是否正常运行
