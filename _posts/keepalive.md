@@ -23,7 +23,7 @@ keepalive原理：当server端检测超过一段时间没有传输数据(/proc/s
 3、client端以前崩溃，但已经重新启动。server收到的探测响应是一个复位，server端终止连接。
 
 
-修改系统的3个默认值可以根据我们的需求设置keepalive的时间
+修改系统的3个默认值可以根据我们的需求设置keepalive的时间.
 
 
 ### 临时方法
