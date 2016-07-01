@@ -4,7 +4,7 @@ tags:
  - tcp
  - keepalive
 categories:经验分享 
-```
+---
 对于长连接TCP Socket 面对如果需要检查对端是否断线的需求，下面主要描述采用TCP的KEEPALIVE属性检测对端掉线的情况。
 
 ### 问题描述
