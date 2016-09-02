@@ -40,7 +40,7 @@ rabbit默认帐号guest只能通过localhost登陆使用，官方文档对此的
 		  (Tag 可设置为管理员administrator)
       用户权限设置     ./rabbitmqctl set_permissions -p / Username ".*" ".*" ".*" 
 
-进建虚拟主机   ./rabbitmqctl add_vhost testHost
+创建虚拟主机   ./rabbitmqctl add_vhost testHost
 为用户分配虚拟主机权限 ./rabbitmqctl set_permissions -p testHost Username ".*" ".*" ".*"
 ```
 ## 集群环境搭建
@@ -85,5 +85,13 @@ $./rabbitmqctl start_app
 $./rabbitmqctl join_cluster rabbit@n1
 $./rabbitmqctl start_app
 ```
+
+## 服务器断电等异常处理
+如果所有的节点同时宕机，会进入所有的节点都会认为其他节点比自己宕机的要晚，这种情况下可以使用
+```
+$./rabbitmqctl force_boot
+```
+
+
 
 开启集群的所有节点，可进入rabbit的web管理界面查看集群是否正常运行
