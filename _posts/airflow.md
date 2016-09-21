@@ -56,6 +56,7 @@ pip install airflow
 # initialize the database
 airflow initdb
 
+
 # start the web server, default port is 8080
 airflow webserver -p 8080
 ```
@@ -86,9 +87,12 @@ Jinja2是Python下一个被广泛应用的模版引擎，他的设计思想来�
 ## Airflow的应用
 ### DAG脚本的开发
 目前应用场景是使用Airflow进行spark任务的调度，只需要开发一个提交任务的Python脚本作为DAG，定时提交任务即可，需要的操作库为BashOperator。
-以下是SARA项目的调度Demo,使用jinja模板将容易改变的参数以配置形式传入命令中。
+使用jinja模板将容易改变的参数以配置形式传入命令中。
 
 将这个.py文件放在 AIRFLOW_HOME目录下的dags文件夹下即可
+```
+airflow resetdb
+```
 ### 开启调度器
 ```
 airflow scheduler  
