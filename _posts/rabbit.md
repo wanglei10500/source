@@ -10,7 +10,7 @@ categories: 环境搭建
 Ubuntu下可直接用sudo apt-get install Erlang
 
 ## simplejson安装
-simplejson是依赖python脚本，所以必须有python环境。
+simplejson是依赖python环境，所以必须有python环境。
 [simplejson下载地址](https://pypi.python.org/pypi/simplejson/_)
 ```
 tar -zxvf simplejson-x.x.x 
@@ -26,7 +26,7 @@ cd rabbitmq/sbin  ./rabbitmq-server -detached实现后台启动
 
 ./rabbitmqctl stop 关闭rabbitmq
 
-执行./rabbitmq-plugin enable rabbitmq_management 开启管理界面。默认地址：127.0.0.1:15672 
+执行./rabbitmq-plugins enable rabbitmq_management 开启管理界面。默认地址：127.0.0.1:15672 
 ```
 
 ##  解决无法远程连接的问题
@@ -42,6 +42,20 @@ rabbit默认帐号guest只能通过localhost登陆使用，官方文档对此的
 
 创建虚拟主机   ./rabbitmqctl add_vhost testHost
 为用户分配虚拟主机权限 ./rabbitmqctl set_permissions -p testHost Username ".*" ".*" ".*"
+
+## 修改日志级别与位置
+日志位置配置在rabbitmq安装目录/etc/rabbitmq/rabbitmq-env.conf 
+```
+vi /etc/rabbitmq/rabbitmq-env.conf
+RABBITMQ_LOG_BASE=/data/rabbitmq_log
+```
+日志级别配置在安装目录/etc/rabbitmq/rabbitmq.config
+```
+[
+  {rabbit, [{log_levels, [{connection, warning}]}]}
+].
+```
+
 ```
 ## 集群环境搭建
 
