@@ -42,7 +42,7 @@ rabbit默认帐号guest只能通过localhost登陆使用，官方文档对此的
 
 创建虚拟主机   ./rabbitmqctl add_vhost testHost
 为用户分配虚拟主机权限 ./rabbitmqctl set_permissions -p testHost Username ".*" ".*" ".*"
-
+```
 ## 修改日志级别与位置
 日志位置配置在rabbitmq安装目录/etc/rabbitmq/rabbitmq-env.conf 
 ```
@@ -56,7 +56,7 @@ RABBITMQ_LOG_BASE=/data/rabbitmq_log
 ].
 ```
 
-```
+
 ## 集群环境搭建
 
 rabbit MQ 的集群依赖于erlang的集群来工作，所以必须构建起erlang的集群环境。erlang集群中的各节点通过一个cookie文件来实现的。这个cookie文件存放在$HOME/.Erlang.cookie。文件权限应该是400.必须保证各个节点的cookie保持一致。
