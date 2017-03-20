@@ -26,5 +26,5 @@ $ git branch -m devel develop
 推送本地分支
 
 ```
-$ git push orign develop
+$ git push origin develop
 ```
