@@ -39,3 +39,16 @@ $ git fetch origin
 $ git branch -av
 $ git checkout -b V2.5.0 origin/V2.5.0
 ```
+
+### 手动合并代码 解决冲突
+```
+Step 1. Update the repo and checkout the branch we are going to merge
+
+git fetch origin
+git checkout -b dev-v2.5.0-layne origin/dev-v2.5.0-layne
+Step 2. Merge the branch and push the changes to GitLab
+
+git checkout dev-v2.5.0
+git merge --no-ff dev-v2.5.0-layne
+git push origin dev-v2.5.0
+```
