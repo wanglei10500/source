@@ -35,5 +35,5 @@ ftp默认监听21端口
 修改配置文件
 anonymous_enable=YES #允许匿名用户
 
-local_root=/srv/ftp/
+local_root=/srv/ftp/ #添加此配置 设置ftp根目录
 ```

@@ -9,7 +9,7 @@ categories: 经验分享
 示例把devel分支重命名为develop分支：
 
 ```
-$ git branch -av
+$ git branch -av 列出本地分支和远程分支 显示hash值
 ```
 
 删除远程分支
@@ -51,4 +51,9 @@ Step 2. Merge the branch and push the changes to GitLab
 git checkout dev-v2.5.0
 git merge --no-ff dev-v2.5.0-layne
 git push origin dev-v2.5.0
+```
+
+### 删除本地分支
+```
+git branch -D
 ```
