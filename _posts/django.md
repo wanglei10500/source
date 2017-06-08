@@ -1,5 +1,5 @@
 ---
-title: oss
+title: django
 tags:
  - pip
  - python
