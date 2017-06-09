@@ -1,7 +1,8 @@
 ---
-title: hadoop
+title: ResourceManager
 tags:
  - hadoop
+ - ResourceManager
 categories: 经验分享
 ---
 ## ResourceManager
