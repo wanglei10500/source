@@ -37,3 +37,14 @@ anonymous_enable=YES #允许匿名用户
 
 local_root=/srv/ftp/ #添加此配置 设置ftp根目录
 ```
+### 启用TLS
+修改 /etc/vsftpd.conf配置文件
+```
+#增加以下配置
+ssl_enable=YES
+
+ssl_tlsv1=YES
+
+strict_ssl_read_eof=YES
+```
+sudo service vsftpd restart #重启FTP服务
