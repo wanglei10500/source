@@ -77,3 +77,17 @@ require_ssl_reuse=NO
 #当选项require_ssl_reuse设置为YES时，所有SSL数据连接都需要显示SSL会话重用; 证明他们知道与控制信道相同的主秘密。
 ```
 sudo service vsftpd restart #重启FTP服务
+
+### 开启本地虚拟用户的写权限
+
+修改 /etc/vsftpd.conf配置文件
+```
+local_enable=YES
+
+write_enable=YES
+
+local_umask=022
+
+```
+
+sudo service vsftpd restart #重启FTP服务
