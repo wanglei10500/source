@@ -8,7 +8,7 @@ categories: 经验分享
 ## ResourceManager
 
 ![ResourceManager](http://dongxicheng.org/wp-content/uploads/2013/02/Hadoop-YARN-infrastructure.jpg)
-![ResourceManager](https://2xbbhjxc6wk3v21p62t8n4d4-wpengine.netdna-ssl.com/wp-content/uploads/2012/08/resource_manager_small.gif)
+![ResourceManager](http://2xbbhjxc6wk3v21p62t8n4d4-wpengine.netdna-ssl.com/wp-content/uploads/2012/08/resource_manager_small.gif)
 
 
 ResourceManager主要由几个部分组成：
