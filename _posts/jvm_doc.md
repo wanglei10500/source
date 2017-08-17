@@ -24,3 +24,7 @@ categories: 经验分享
 -XX:+PrintGCDetails
 #### -Xss
 -Xss 每个线程的栈容量
+#### -XX:PermSize
+-XX:PermSize 设置持久代(perm gen)初始值  默认值:物理内存的1/64
+#### -XX:MaxPermSize
+-XX:MaxPermSize 设置持久代的最大值 默认值:物理内存的1/4
