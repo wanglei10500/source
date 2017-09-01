@@ -51,7 +51,10 @@ sudo apt-get install python-pip
 export AIRFLOW_HOME=/usr/local/airflow
 
 # install from pypi using pip
-pip install airflow
+pip install -v airflow==1.7.1.3 -i https://pypi.douban.com/simple
+pip install -v airflow[hive]==1.7.1.3 -i https://pypi.douban.com/simple
+pip install -v airflow[password]==1.7.1.3 -i https://pypi.douban.com/simple
+pip install -v fabric -i https://pypi.douban.com/simple
 
 # initialize the database
 airflow initdb
@@ -65,6 +68,7 @@ airflow默认数据库为sqlite，生产环境中若要改为mysql,首先需要�
 修改airflow.cfg文件
 ```
 sudo apt-get install libmysqld-dev
+pip install mysql-python
 sql_alchemy_conn = mysql://root:mysql1@127.0.0.1:3306/airflow
 ```
 
