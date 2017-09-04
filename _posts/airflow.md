@@ -49,6 +49,7 @@ sudo apt-get install python-pip
 ```
 # airflow needs a home, ~/airflow is the default,
 export AIRFLOW_HOME=/usr/local/airflow
+export AIRFLOW_HOME=/home/yuzx/airflow
 
 # install from pypi using pip
 pip install -v airflow==1.7.1.3 -i https://pypi.douban.com/simple

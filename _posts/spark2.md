@@ -1,0 +1,57 @@
+---
+title: hadoop
+tags:
+ - hadoop
+categories: 经验分享
+---
+
+## 存储体系
+### 存储体系概述
+#### 块管理器BlockManager的实现
+块管理器BlockManager是Spark存储体系中的核心组件 Driver Application和Executer都会创建BlockManager
+
+BlockInfo:TimeStampedHashMap[BlockId,BlockInfo] 用于BlockManager缓存BlockId及对应的BlockInfo BlockManager主要由以下部分组成：
+* shuffle客户端ShuffleClient
+* BlockManagerMaster(对存在于所有Executor上的BlockManager统一管理)
+* 磁盘块管理器DiskBlockManager
+* 内存存储MemoryStore
+* 磁盘存储DiskStore
+* tachyon存储TachyonStore
+* 非广播Block清理器metadataCleaner和广播Block清理器broadcastCleaner
+* 压缩算法实现CompressionCodec
+
+BlockManager要生效，必须要初始化，它的初始化步骤：
+1. BlockTransferService的初始化和ShuffleClient的初始化 ShuffleClient默认是BlockTransferService 当有外部的ShuffleService时 调用外部ShuffleService的初始化方法
+2. BlockManagerId和ShuffleServerId的创建。当有外部的ShuffleService时，创建新的BlockManagerId，否则ShuffleServerId默认使用当前BlockManager的BlockManagerId
+3. 向BlockManagerMaster注册BlockManagerId
+#### Spark存储体系架构
+![spark](http://images2015.cnblogs.com/blog/739637/201707/739637-20170714172030775-1507870285.png)
+1. 记号1表示Executor的BlockManager与Driver的BlockManager进行消息通信 例如：注册BlockManager、更新Block信息、获取Block所在的BlockManager、删除Executor等
+2. 记号2表示BlockManager的读操作(例如get、doGetLocal以及BlockManager内部进行的MemoryStore、DiskStore、TachyonStore的getBytes、getValues等操作)和写操作(例如doPut、putSingle、putBytes以及BlockManager内部进行的MemoryStore、DiskStore的putBytes、putArray、putIterator等操作)
+3. 记号3表示当MemoryStore的内存不足时，写入DiskStore，而DiskStore实现依赖于DiskBlockManager
+4. 记号4表示通过访问远端节点的Executor的BlockManager中的TransportServer提供的RPC服务下载或者上传Block
+5. 记号5表示远端节点的Executor的BlockManager访问本地Executor的BlockManager中的TransportServer提供的RPC服务下载或上传Block
+6. 记号6表示当存储体系选择TachyonStore作为存储时，对于BlockManager的读写操作实际调用了TranyonStore的putBytes、putArray、putIterator、getBytes、getValues等
+### shuffle服务与客户端
+为什么需要把由Netty实现的网络服务组件也放到存储体系里面？这是由于Spark是分布式部署的，每个Task最终都运行在不同的机器节点上。map任务的输出结果直接存储到map任务所在机器的存储体系中，reduce任务极有可能不在同一机器上运行，所以需要远程下载map任务的中间输出。因此将ShuffleClient放到存储体系是最合适的
+
+ShuffleCLient并不像它的名字一样 是shuffle的客户端，它不光是将shuffle文件上传到其他Executer或者下载到本地的客户端，也提供了可以被其他Executor访问的shuffle服务 采用Netty作为shuffle server
+
+当有外部的ShuffleClient时，新建ExternalShuffleClient，否则默认为BlockTransferService BlockTransferService只有在其init方法被调用，即被初始化后才提供服务。以默认的NettyBlockTransferService的init方法为例 NettyBlockTransferService初始化步骤：
+1. 创建RpcServer
+2. 构造TransportContext
+3. 创建RPC客户端工厂TransportClientFactory
+4. 创建Netty服务器TransportServer，可以修改属性spark.BlockManager.port(默认为0,表示随机选择)改变TransportServer的端口
+#### Block的RPC服务
+当map任务与reduce任务处于不同节点时，reduce任务需要从远端节点下载map任务的中间输出，因此NettyBlockRpcServer提供打开，即下载Block文件的功能 一些情况下，为了容错需要将Block的数据备份到其他节点上，所以NettyBlockRpcServer还提供了上传Block文件的RPC服务
+#### 构造传输上下文TransportContext
+TransportContext用于维护传输上下文 既可以创建Netty服务，也可以创建Netty访问客户端。TransportContext的组成如下：
+* TransportConf:主要控制Netty框架提供的shuffle的I/O交互的客户端和服务端线程数量
+* RpcHandle:负责shuffle的I/O服务端在接收到客户端的RPC请求后，提供打开Block或者上传Block的RPC处理，此处即为NettyBlockRpcServer
+* decoder:在shuffle的I/O服务端对客户端传来的ByteBuf进行解析，防止丢包和解析错误
+* encoder:在shuffle的I/O客户端对消息内容进行编码，防止服务端丢包和解析错误
+为什么需要MessageEncoder和MessageDecoder？在基于流的传输里(TCP/IP) 接收到的数据首先会被存储到一个socket接收缓冲里。不幸的是，基于流的传输并不是一个数据包队列，而是一个字节队列，不能保证准确处理，防止丢包
+#### RPC客户端工厂TransportClientFactory
+TransportClientFactory是创建Netty客户端TransportClient的工厂类，TransportClient用于向Netty服务端发送RPC请求。TransportContext的createClientFactory方法用于创建TransportClientFactory
+
+TransportClientFactory由以下部分组成：

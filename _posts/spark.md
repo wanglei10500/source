@@ -81,6 +81,13 @@ RDD可以看做是对各种计算模型的统一抽象，Spark的计算过程主
 * Worker:Spark的工作节点。 对Spark应用程序来说，由集群管理器分配得到资源的Worker节点主要负责以下工作。创建Executor,将资源和任务进一步分配给Executor 同步资源信息给Cluster Manager
 * Executor：执行计算任务的一线进程。主要负责任务的执行以及与Worker、Driver App的信息同步          
 * Driver App:客户端驱动程序，也可以理解为客户端应用程序，用于将任务程序转换为RDD和DAG，并与Cluster Manager进行通信与调度
+
+dirver->master: 提交Application，并告知需要多少资源(cores)
+master->driver: 告知Application提交成功
+driver->worker: 发送到appDescription，启动executor子进程
+executor->driver:注册executor
+driver->executor:提交Tasks，由后者执行任务
+
 ## SparkContext的初始化
 ### SparkContext概述
 Spark Driver用于提交用户应用程序，可以看做Spark客户端，SparkContext初始化完毕，才能向Spark集群提交任务。 SparkContext的配置参数则有SparkConf负责
@@ -107,7 +114,7 @@ SparkConf主要通过ConcurrentHashMap来维护各种以"spark."开头的字符�
 SparkEnv是Spark的执行环境对象，其中包括众多与Executor执行相关的对象。由于在local模式下Driver会创建Executor，local-cluster部署模式或者Standalone部署模式下Worker另起的CoarseGrainedExecutorBackend进程中也会创建Executor,
 所以SparkEnv存在于Driver或者CoarseGrainedExecutorBackend进程中。创建SparkEnv主要使用SparkEnv的createDriverEnv 有三个参数:conf、isLocal和listenerBus
 
-conf为SparkConf的复制 isLocal标识是否是单击模式 listenerBus采用监听器模式维护各类事件的处理
+conf为SparkConf的复制 isLocal标识是否是单机模式 listenerBus采用监听器模式维护各类事件的处理
 
 SparkEnv的方法createDriverEnv最终调用create创建SparkEnv 构造步骤如下：
 1. 创建安全管理器SecurityManager
@@ -250,3 +257,127 @@ create方法除了JobProgressListener是外部传入的之外又增加了一些S
 对Executor的环境变量的处理，Master给Worker发送调度后，Worker最终使用executorEnvs提供的信息启动Executor 可以通过配置spark.executor.memory指定Executor占用的内存大小 也可以配置系统变量SPARK_EXECUTOR_MEMORY或者SPARK_MEM对其大小进行设置
 ### 创建任务调度器TaskScheduler
 TaskScheduler也是SparkContext的重要组成部分，负责任务的提交，并且请求集群管理器对任务调度。TaskScheduler也可以看做任务调度的客户端
+
+createTaskScheduler方法根据master的配置匹配部署模式，创建TaskSchedulerImpl，并生成不同的schedulerBackend
+#### 创建TaskSchedulerImpl
+构造过程：
+1. 从SparkConf读取配置信息，包括每个任务分配的CPU数、调度模式(FAIR、默认FIFO 修改属性spark.scheduler.mode来改变)
+2. 创建TaskResultGetter 作用是通过线程池(Executors.newFixedThreadPool创建的，默认4个线程，线程名字以task-result-getter开头，线程工厂默认是Executors.default.ThreadFactory)对Worker上的Executor发送的Task的执行结果进行处理
+
+TaskSchedulerImpl的调度模式FAIR FIFO两种。最终调度都是落实到借口schedulerBackend具体实现 local模式的实现LocalBackend依赖于LocalActor与ActorSystem进行消息通信
+#### TaskSchedulerImpl的初始化
+创建完TaskSchedulerImpl和LocalBackend后，对TaskSchedulerImpl调用方法initialize进行初始化。以FIFO为例，初始化过程：
+1. 使TaskSchedulerImpl持有LocalBackend的引用
+2. 创建Pool，Pool中缓存调度队列、调度算法及TaskSetManager集合等信息。
+3. 创建FIFOSchedulableBuilder FIFOSchedulableBuilder用来操作Pool中的调度队列
+### 创建和启动DAGScheduler
+DAGScheduler主要用于在任务正式提交给TaskSchedulerImpl提交之前做一些准备工作 包括：创建Job，将DAG中的RDD划分到不同的Stage，提交Stage
+
+DAGScheduler的数据结构主要维护jobId和stageId的关系、Stage、ActiveJob,以及缓存的RDD的partitions的位置信息
+
+在构造DAGScheduler的时候会调用initializeEventProcessActor方法创建DAGSchedulerEventProcessActor
+
+DAGSchedulerActorSupervisor作为DAGSchedulerEventProcessActor的监管者，负责生成DAGSchedulerEventProcessActor DAGSchedulerActorSupervisor对于DAGSchedulerEventProcessActor采用了Akka的一对一监管策略
+
+DAGSchedulerActorSupervisor一旦生成DAGSchedulerEventProcessActor并注册到ActorSystem，ActorSystem会调用DAGSchedulerEventProcessActor的preStart taskScheduler于是就持有了dagScheduler
+
+DAGSchedulerEventProcessActor所能处理的消息类型，比如JobSubmitted、BeginEvent、CompletionEvent
+### TaskScheduler的启动
+taskScheduler.start()实际调用了backend的start方法 以LocalBackend为例，启动LocalBackend时向ActorSystem注册了LocalActor
+#### 创建LocalActor
+主要是构建本地的Executor Executor的构建步骤：
+1. 创建并注册ExecutorSource
+2. 获取SparkEnv如果非local模式，Worker上的CoarseGrainedExecutorBackend向Driver上的CoarseGrainedExecutorBackend注册Executor时，则需要新建SparkEnv。可以修改spark.executor.port(默认0,表示随机生成)来配置Executor中的ActorSystem的端口号
+3. 创建并注册ExecutorActor ExecutorActor负责接受发送给Executor的消息
+4. urlClassLoader的创建 为何创建？ 非local模式中，Driver或者Worker上都会有多个Executor，每个Executor都设置自身的urlClassLoader，用于加载任务上传的jar包中的类，有效对任务的类加载环境隔离
+5. 创建Executor执行Task的线程池。此线程池用于执行任务
+6. 启动Executor的心跳线程。用于向Driver发送心跳
+
+还包括Akka发送消息的帧大小、结果总大小的字节限、正在运行的task的列表、设置serializer的默认ClassLoader为创建的ClassLoader
+
+#### Executor的创建与注册
+ExecutorSource用于测量系统 通过MetricRegistry的register方法注册计量
+
+创建完ExecutorSource后，调用MetricsSystem的registerSource方法将ExecutorSource注册到MetricsSystem registerSource方法使用MetricRegistry的register方法,将Source注册到MetricRegistry
+#### ExecutorActor的构建与注册
+当接收到SparkUI发来的消息时，将所有线程的栈信息发送回去
+#### Spark自身ClassLoader的创建
+获取要创建的ClassLoader的父加载器类currentLoader，然后根据currentJars生成URL数组 spark.files.userClassPathFirst属性指定加载类时是否先从用户的classpath下加载 ，最后创建ExecutorURLClassLoader或者ChildExecutorURLClassLoader
+### 启动Executor的心跳线程
+Executor的心跳由startDriverHeartbeater启动 Executor心跳线程的间隔由属性spark.executor.heartbeatInterval配置，默认10000毫秒，超时时间30秒，超时重试3次，重试间隔3000毫秒
+
+使用actorSystem.actorSelection(url)方法查找到匹配的Actor引用， url是akka.tcp://sparkDriver@$driverHost:$driverPort/user/HeartbeatReceiver 最终创建一个运行过程中 每次会休眠10000-20000毫秒的线程
+
+此线程从runningTasks获取最新的有关Task的测量信息，将其与executorId、BlockManagerId封装为Heatbeat消息，向HeartbeatReceiver发送Heatbeat消息
+
+心跳线程的作用？ 其中有两个：
+* 更新正在处理的任务的测量信息
+* 通知BlockManagerMaster，此Executor上的BlockManager依然活着
+![spark](http://img.blog.csdn.net/20160229134357713?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQv/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center)
+
+### 启动测量系统MetricsSystem
+使用codahale提供的第三方测量仓库Metrics。MetricsSystem有三个概念：
+* Instance:指定了谁在使用测量系统
+* Source：指定了从哪里收集测量数据
+* Sink：指定了往哪里输出测量数据
+Spark按照Instance不同，区分为Master、Worker、Application、Driver、Executor
+
+目前提供的Sink有ConsoleSink、CsvSink、JmxSink、MetricsServlet、GraphiteSink等 MetricsServlet作为默认的Sink
+
+MetricsSystem的启动过程：
+1. 注册Sources
+2. 注册Sinks
+3. 给Sinks增加Jetty的ServletContextHandler
+启动完毕后，会遍历与Sinks有关的ServletContextHandler，并调用attachHandler将它们绑定到SparkUI上
+#### 注册Sources
+registerSource方法用于注册Sources，告诉测量容器从哪里收集测量数据
+1. 从metricsConfig获取Driver的Properties,默认为创建MetricsSystem的过程中解析的
+2. 用正则匹配Driver的Properties中source.开头的属性，然后将属性中的Source反射得到的实例加入ArrayBuffer[Source]
+3. 将每个source的MetricRegistry注册到ConcurrentMap<String,Metric>metrics
+#### 注册Sinks
+registerSinks方法用于注册sinks 告诉测量系统MetricsSystem往哪里输出测量数据 注册Sinks的步骤如下：
+1. 从Driver的Properties中用正则匹配以sink.开头的属性 将其转换为Map
+2. 将子属性class对应的类MetricsServlet反射得到MetricsServlet实例 如果属性的key是servlet 将其设置为MetricsServlet，如果是Sink，则加入到ArrayBuffer[Sink]中
+#### 给Sinks增加Jetty的ServletContextHandler
+为了在SparkUI访问到测量数据 需要给Sinks增加Jetty的ServletContextHandler。
+### 创建和启动ExecutorAllocationManager
+ExecutorAllocationManager用于对已分配的Executor进行管理 默认情况下不会创建ExecutorAllocationManager，可以修改属性spark.dynamicAllocation.enabled为true来创建。
+
+ExecutorAllocationManager可以设置动态分配最小Executor数量、动态分配最大Executor数量、每个Executor可以运行的Task数量等配置信息，并对配置信息进行校验。
+
+start方法将ExecutorAllocationListener加入listenerBus中，ExecutorAllocationListener通过监听listenerBus里的事件，动态添加、删除Executor。并且通过Thread不断添加Executor，遍历Executor 将超时的Executor杀掉并移除
+### ContextCleaner的创建与启动
+ContextCleaner用于清理那些超出应用范围的RDD、ShuffleDependency和Broadcast对象 spark.cleaner.referenceTracking默认是true，所以会构造并启动ContextCleaner
+* referenceQueue:缓存顶级的AnyRef引用
+* referenceBuffer:缓存AnyRef的虚引用
+* 缓存清理工作的监听器数组
+* cleaningThread：用于具体清理工作的线程
+
+ContextCleaner的工作原理和listenerBus一样，采用监听器模式，由线程来处理，此线程实际只是调用keepCleaning方法
+### Spark环境更新
+SparkContext的初始化过程中，可能对其环境造成影响，所以需要更新环境
+```
+postEnvironmentUpdate()
+postApplicationStart()
+```
+SparkContext初始化过程中，如果设置了spark.jars属性，spark.jars指定的jar包将由addJar方法加入HttpFileServer的jarDir变量指定的路径下。spark.files指定的文件将由addFile方法加入HttpFileServer的fileDir变量指定的路径下
+
+postEnvironmentUpdate的实现：
+1. 通过调用SparkEnv的方法environmentDetails最终影响环境的JVM参数、Spark属性、系统属性、classPath等
+2. 生成事件SparkListenerEnvironmentUpdate,并post到listenerBus，此事件被EnvironmentListener监听，最终影响EnvironmentPage页面中的输出内容
+### 创建DAGSchedulerSource和BlockManagerSource
+在创建DAGSchedulerSource、BlockManagerSource之前首先调用taskScheduler的postStartHook方法，其目的是为了等待backend就绪。
+
+创建的过程类似于ExecutorSource、只不过DAGSchedulerSource测量的信息是stage.failedStages、stage.runningStages、stage.waitingStages、stage.allJobs、stage.activeJobs、
+
+BlockManagerSource测量的信息是memory.maxMem_MB、memory.remainingMem_MB、memory.memUsed_MB、memory.diskSpaceUsed_MB
+### 将SparkContext标记为激活
+SparkContext初始化的最后将当前SparkContext的状态从contextBeingConstructed改为activeContext
+
+### 小结
+* Scala与Akka的基于Actor的并发编程模型
+* listenerBus对于监听器模式的经典应用
+* Netty提供的异步网络框架构建的Block传输服务
+* 基于Jetty构建的内嵌web服务(HTTP文件服务器和SparkUI)
+* 基于codahale提供的第三方测量仓库创建的测量系统
+* Executor中 心跳的实现
