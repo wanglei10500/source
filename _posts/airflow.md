@@ -102,3 +102,6 @@ airflow resetdb
 ```
 airflow scheduler  
 ```
+
+
+sudo pip install --upgrade airflow
