@@ -1,0 +1,209 @@
+---
+title: hadoop
+tags:
+ - hadoop
+categories: 经验分享
+---
+
+## 任务提交与执行
+
+任务的配置信息、jar包依赖、中间计算结果缓存等信息都离不开存储体系，而任务的执行则要依靠计算引擎的能力
+### 任务概述
+![spark](http://img.blog.csdn.net/20170511195707741)
+1. build operator DAG:此阶段主要完成RDD的转换及DAG的构建。
+2. split graph into stages of tasks:此阶段主要完成finalStage的创建与Stage的划分，做好Stage与Task的准备工作后，最后提交Stage与Task。
+3. launch tasks via cluster manager: 使用集群管理器(Cluster manager) 分配资源与任务调度，对于失败的任务还会有一定的重试与容错机制。
+4. execute tasks:执行任务，并将任务中间结果和最终结果存入存储体系
+
+textFile->hadoopFile主要为了构建HadoopRDD,处理步骤：
+1. 将Hadoop的configuration封装为SerializableWritble用于序列化读写操作，然后广播Hadoop的Configuration Configuration通常10K
+2. 定义偏函数(jobConf:JobConf)=>FileInputFormat.setInputPaths(jobConf,path)用于设置输入路径
+3. 构建HadoopRDD。
+
+### 广播Hadoop的配置信息
+SparkContext的broadcast方法用于广播Hadoop的配置信息
+
+通过使用BroadcastManager发送广播，广播结束将广播对象注册到ContextCleaner中，以便清理 BroadcastManager的newBroadcast方法实际代理了broadcastFactory的newBroadcast方法，通过TorrentBroadcastFactory生成TorrentBroadcast对象
+
+构造TorrentBroadcast过程分三步：
+1. 设置广播配置信息。根据spark.broadcast.compress配置属性确认是否对广播消息进行压缩，并且生成CompressionCodec对象。 根据spark.broadcast.blockSize配置属性确认块的大小，默认4MB
+2. 生成BroadcastBlockId
+3. 块的写入操作，返回广播变量包含的块数
+
+块的写入操作writeBlocks
+1. 将要写入的对象在本地的存储体系中备份一份，以便于Task也可以在本地的Driver上运行
+2. 给ByteArrayChunkOutputStream指定压缩算法，并且将对象以序列化方式写入ByteArrayChunkOutputStream后转换为Array[ByteBuffer]
+3. 将每一个ByteBuffer作为一个Block，使用putBytes方法写入存储体系
+
+### RDD转换及DAG构建
+#### 为什么需要RDD
+1. 数据处理模型
+RDD是一个容错的、并行的数据结构，可以控制将数据存储到磁盘或内存，能够获取数据的分区。RDD提供了一组类似Scala的操作，比如map、flatMap、filter等，这些操作实际是对RDD进行转换(transformation) 此外RDD还提供了join、groupBy、reduceByKey等操作完成数据计算
+
+通常数据处理的模型包括：迭代计算、关系查询、MapReduce、流式处理等。Hadoop采用MapReduce模型，Storm采用流式处理模型，而Spark则实现了以上所有模型
+2. 依赖划分原则
+一个RDD包含一个或者多个分区，每个分区实际是一个数据集合的片段。在构建DAG的过程中，会将RDD用依赖关系串联起来。每个RDD都有其依赖(除了最顶级RDD的依赖是空列表)，这些依赖分为NarrowDependency和ShuffleDependcy两种。
+
+为什么区分依赖？
+从功能角度讲不一样的。NarrowDependency会被划分到同一个Stage中，这样他们就能以管道的方式迭代执行。 ShuffleDependcy由于依赖上游RDD不止一个，所以往往需要跨节点传输数据。从容灾角度讲，它们恢复计算结果的方式不同。NarrowDependency只需要重新执行父RDD的丢失分区的计算即可恢复，而ShuffleDependcy则需要考虑恢复所有父RDD的丢失分区
+3. 数据处理效率
+ShuffleDependcy所依赖的上游RDD的计算过程允许在多个节点并发执行，实际上也就是后面将会讲到的ShuffleMapTask在多个节点上的多个实例，如果数据量很大，可以适当增加分区数量，这种根据硬件条件对并发任务数量的控制，能更好地利用各种资源，也能有效提高Spark的数据处理效率
+4. 容错处理
+传统关系型数据库往往采用日志记录的方式来容灾容错，数据恢复都依赖于重新执行日志中的SQL。  Hadoop为了避免单击故障概率较高的问题，通过将数据备份到其他机器容灾，由于所有备份机器同时出故障的概率比单机故障概率低很多，从而在宕机等问题发生时，从备份机读取数据，
+
+RDD本身是一个不可变的(Scala中成为immutable)数据集，当某个Worker节点上的任务失败时，可以利用DAG重新调度计算这个失败的任务。由于不用复制数据，也大大降低了网络通信。在流式计算的场景中，Spark需要记录日志和检查点(CheckPoint)以便利用CheckPoint和日志对数据进行恢复
+
+#### RDD实现分析
+
+hadoopFile方法创建HadoopRDD后， 若调用RDD的map方法 map方法将HadoopRDD封装为MappedRDD 调用了SparkContext的clean
+
+clean方法实际调用了ClosureCleaner的clean方法，这里意在清除闭包中的不能顺序化的变量，防止RDD在网络传输过程中反序列化失败。
+
+构造MappedRDD的步骤：
+1. 调用MappedRDD的父类RDD的辅助构造器 辅助构造器首先将oneParent封装为OneToOneDependency，OneToOneDependency继承自NarrowDependency
+2. 调用RDD的主构造器 MappedRDD在JavaSparkContext中会被隐式转换为JavaRDD
+
+flatMap:MappedRDD被封装为FlatMappedRDD,构造FlatMappedRDD也会调用父类RDD的辅助构造器,并为其设置OneToOneDependency，这与MappedRDD的构造过程一样 FlatMappedRDD创建完后调用了JavaRDD的fromRDD方法，将FlatMappedRDD也封装为JavaRDD
+
+->mapToPairJavaRDD由于实现了JavaRDDLike特质，所以实际调用了JavaRDDLike的mapToPair方法
+->reduceByKey defaultPartitioner功能：
+1. 将RDD转换为Seq，然后对Seq按照RDD的partitions_:Array[Partition]的size倒序排列
+2. 创建HashPartitioner对象。如果配置了spark.default.parallelism属性，则用此属性值作为分区数量。否则使用Seq中所有RDD的partitions函数返回值的最大值作为分区数量
+
+本例中 partitions方法实际调用了MappedRDD的getPartitions方法。MappedRDD的getPartitions方法调用了RDD的firstParent firstParent用于返回依赖的第一个父RDD，MappedRDD的第一个依赖RDD是FlatMappedRDD，然后调用FlatMappedRDD的partitions方法。FlatMappedRDD没有partitions方法，所以调用了RDD的partitions方法
+
+FlatMappedRDD的getPartitions与MappedRDD的getPartitions完全一样，仍然会调用firstParent方法.FlatMappedRDD的第一个父RDD是最早封装的那个MappedRDD，MappedRDD的第一个父RDD是HadoopRDD。HadoopRDD也没有partitions方法，实际也是调用了RDD的partitions方法。partitions最终调用HadoopRDD的getPartitions方法
+
+无论是RDD还是MappedRDD都没有reduceByKey。这是怎么回事？实际上这里发生了隐式转换，将RDD封装成了PairRDDFunctions
+
+implicit是scala关键字，语法含义是隐式执行。在发生隐式转换之前，还需要将Java里的方法转换为Scala的参数，两样工作：
+1. 用户自定义实现所需要方法的匿名对象，将对象作为参数
+2. 隐式转换将对象转换为Scala的函数
+
+combineByKey方法步骤:
+1. 创建Aggregator
+2. 当前RDD若还没有设置partitioner，self.partitioner!=Some(partitioner) 因而创建ShuffledRDD
+
+ShuffledRDD的依赖是ShuffleDependcy FlatMappedRDD和MappedRDD的依赖都是在构造器被调用时创建的，而ShuffledRDD的依赖ShuffleDependcy则是在其getDependencies方法被调用时才创建的
+
+ShuffledRDD被fromRDD方法重新封装为JavaPairRDD
+### 任务提交
+#### 任务提交的准备
+经过对RDD的层层转换以及DAG的构建，现在要执行JavaPairRDD的word count例子方法 collect 中调用了RDD的collect方法后转成Seq，并封装Seq为ArrayList
+
+RDD的collect方法调用了SparkContext的runJob runJob又调用了重载的runJob ，最终调用的runJob方法里又一次调用clean方法防止闭包的反序列化错误，然后运行DAGScheduler的runJob DAGScheduler的runJob方法主要调用submitJob方法，之后的waiter.awaitResult()说明了任务的运行是异步的
+
+* 提交Job
+submitJob方法用来将一个Job提交到job scheduler submitJob的处理步骤：
+1. 调用RDD的partitions函数来获取当前Job的最大分区数，即maxPartitions。根据maxPartitions，确认我们没有在一个不存在的partition上运行任务
+2. 生成当前Job的jobid
+3. 创建JobWaiter，Job的服务员。此JobWaiter被阻塞，直到job完成或者被取消
+4. 向eventProcessActor发送JobSubmitted事件
+5. 返回JobWaiter
+* 处理Job提交
+DAGSchedulerEventProcessActor收到JobSubmitted事件，会调用DAGScheduler的handleJobSubmitted方法. handleJobSubmitted过程:
+1. 创建finalStage及Stage的划分。创建Stage的过程可能发生异常，比如，运行在HadoopRDD上的任务所依赖的底层HDFS文件被删除了。所以当异常发生时需要主动调用JobWaiter的jobFailed方法
+2. 创建ActiveJob并更新jobIdToActiveJob=new HashMap[Int,ActiveJob] 、activeJob=new HashSet[ActiveJob]和finalStage.resultOfJob
+3. 向listenerBus发送SparkListenerJobStart事件
+4. 提交finalStage
+5. 提交等待中的Stage
+#### finalStage的创建与Stage的划分
+一个Job可能被划分为一个或多个Stage，各个之间存在依赖关系，其中最下游的Stage也称为最终的Stage，用来处理Job最后阶段的工作
+
+##### newStage的实现分析
+handleJobSubmitted方法使用newStage方法创建finalStage,newStage步骤：
+1. 调用getParentStages获取所有的父Stage的列表，父Stage主要是宽依赖(Shuffle ShuffleDependency)对应的Stage，此列表内的Stage包含以下几种：
+ * 当前RDD的直接或间接的依赖是ShuffleDependency且已经注册过的Stage
+ * 当前RDD的直接或间接的依赖是ShuffleDependency且没有注册过Stage的,则根据ShuffleDependency本身的RDD找到它的直接或间接的依赖是ShuffleDependency且没有注册过Stage的所有ShuffleDependency，为他们生成Stage并注册
+ * 当前RDD的直接或间接的依赖是ShuffleDependency且没有注册过Stage的,为它们生成Stage并注册，最后也添加此Stage到List
+2. 生成Stage的Id，并创建Stage
+3. 将Stage注册到stageIdToStage=new HashMap[Int,Stage]中
+4. 调用updateJobIdStageIdMaps方法Stage及其祖先Stage与jobId的对应关系
+##### 获取父Stage列表
+ Spark中Job会被划分为一到多个Stage，这些Stage的划分是从finalStage开始，从后往前边划分边创建的。getParentStages方法用于获取或者创建给定RDD的所有父Stage，这些Stage将被分配给jobId对应的job，步骤：
+1. 通过调用RDD的dependencies方法获取RDD的所有Dependency的序列
+2. 逐个访问每个RDD及其依赖的非shuffle的RDD，遍历每个RDD的ShuffleDependency依赖，并调用getShuffleMapStage获取或者创建Stage，并将这些返回的Stage都放入parents:HashSet[Stage] ，由此可见，Stage的划分是以ShuffleDependency为分界线的。
+
+##### 获取map任务对应Stage
+getShuffleMapStage方法用于获取或者创建Stage并注册到shuffleToMapStage:HashMap[Int,Stage]中，处理步骤：
+1. 如果已经注册了ShuffleDependency对应的Stage，则直接返回此Stage。
+2. 否则调用registerShuffleDependemcies方法找到所有祖先中，还没有为其注册过Stage的ShuffleDependency，调用方法newOrUsedStage创建Stage并注册。最后还会为当前ShuffleDependency，调用方法newOrUsedStage创建、注册并返回此Stage
+
+### 创建Job
+ActiveJob 一些定义：
+* numPartitions:任务的分区数量
+* finished：标识每个partition相关的任务是否完成
+* numFinished：已经完成的任务数
+
+SparkListenerJobStart事件的处理，SparkListenerBus的sparkListeners中，凡是实现了onJobStart方法的，将被处理。
+#### 提交Stage
+在提交finalStage之前，如果存在没有提交的祖先Stage，则需要先提交所有没有提交的祖先Stage。每个Stage提交之前，如果存在没有提交的祖先Stage，都会先提交祖先Stage，并且将子Stage放入waitingStages=new HashSet[Stage]中等待，如果不存在没有提交的祖先Stage，则提交所有未提交的Task
+
+如何判断Stage可用？ 如果Stage不是Map任务，那么它是可用的，否则它的已经输出计算结果的分区任务数量要和分区数一样，则所有分区上的子任务都要完成
+
+handleJobSubmitted方法中调用的submitWaitingStages方法，submitWaitingStages实际上循环waitingStages中Stage并调用submitStage
+#### 提交Task
+提交Task的入口是submitMissingTasks函数，此函数在Stage没有不可用的祖先Stage时，被调用处理当前Stage未提交的任务。
+
+##### 提交还未计算的任务
+submitMissingTasks用于提交还未计算的任务。在分析submitMissingTasks之前，对一些定义进行描述：
+* pendingTasks:类型是HashSet[Task[ ]]，存储有待处理的Task
+* MapStatus：包括执行Task的BlockManager的地址和要传给reduce任务的Block的估算大小
+* outputLocs：如果Stage是map任务，则outputLocs记录每个Partition的MapStatus
+
+sumbitMissingTasks的执行过程：
+1. 清空pendingTasks.由于当前Stage的任务刚开始提交，所以需要清空，便于记录需要计算的任务
+2. 找出还未计算的partition(如果Stage是map任务，那么outputLocs中partition对应的List[MapStatus]为Nil，说明此partition还未计算。如果Stage不是map任务，那么需要获取Stage的finalJob，并调用finished方法判断每个partition的任务是否完成)
+3. 将当前Stage加入运行中的Stage集合(runningStages：HashSet[Stage])中
+4. 使用StageInfo.fromStage方法创建当前Stage的lastestInfo(StageInfo)
+5. 向listenerBus发送SparkListenerStageSubmitted事件
+6. 如果Stage是map任务，那么序列化Stage的RDD及ShuffleDependency。如果Stage不是map任务，那么序列化Stage的RDD及resultOfJob的处理函数。这些序列化得到的字符数组最后需要使用sc.broadcast进行广播。
+7. 如果Stage是map任务，则创建ShuffleMapTask，否则创建ResultTask。还未计算的partition个数决定了最终创建的Task个数。并将创建的所有Task都添加到Stage的pendingTasks中。
+8. 利用上一步创建的所有Task，当前Stage的id、jobId等信息创建TaskSet，并调用taskScheduler的submitTasks，批量提交Stage及其所有Task。
+
+submitTasks方法提交任务主要步骤：
+1. 构建任务集管理器。即将taskScheduler、TaskSet及最大失败次数(maxTaskFailures)封装为TaskSetManager.
+2. 设置任务集调度策略(调度模式有FAIR FIFO两种，默认FIFO)将TaskSetManager添加到FIFOSchedulableBuilder中
+3. 资源分配。调用LocalBackend的reviveOffers,实际向LocalActor发送reviveOffers消息。LocalActor对reviveOffers消息的匹配执行reviveOffers方法
+reviveOffers处理步骤：
+1. 使用ExecutorId、ExecutorHostName、freeCores(空闲CPU核数)创建WorkerOffer
+2. 调用TaskSchedulerImpl的resourceOffers方法分配资源
+3. 调用Executor的launchTask方法运行任务
+
+##### 资源分配
+resourceOffers方法用于Task任务的资源分配，步骤：
+1. 标记Executor与host的关系，增加激活的Executor的id，按照host对Executor分组，并向DAGSchedulerEventProcessActor发送ExecutorAdded事件等。
+2. 计算资源的分配与计算。对所有WorkerOffer随机洗牌，避免将任务总是分配给同样的WorkerOffer
+3. 根据每个WorkerOffer的可用的CPU核数创建同等尺寸的任务描述(TaskDescription)数组
+4. 将每个WorkerOffer的可用CPU核数统计到可用CPU(availableCpus)数组中
+5. 对rootPool中的所有TaskSetManager按照调度算法排序
+6. 调用每个TaskSetManager的resourceOffers方法，根据WorkerOffer的ExecutorId和host找到需要执行的任务并进一步进行资源处理。
+7. 任务分配到相应的host和Executor后，将taskId与TaskSetId的关系、taskId与ExecutorId的关系、executors与Host的分组关系等更新并且将availableCpus数目减去每个任务分配的CPU核数(CPUS_PER_TASK)
+8. 返回第3步生成的TaskDescription列表
+
+##### Worker任务分配
+resourceOffers方法用于给Worker分配Task，处理步骤如下：
+1. 获取当前任务集允许使用的本地化级别
+2. 调用findTask寻找Executor、Host、pendingTasksWithNoPrefs中有待运行的task
+3. 创建TaskInfo，并对task、addedFiles、addedJars进行序列化
+4. 调用dagScheduler的taskStarted方法 taskStarted是向DAGSchedulerEventProcessActor发送BeginEvent事件 接收BeginEvent事件后，调用了dagScheduler的方法handleBeginEvent 通过发送SparkListenerTaskStart事件给listenerBus，用以各种监听器更新SparkUI的显示
+5. 最终封装TaskDescription对象并返回
+##### 本地化分析
+Spark中任务的处理也要考虑数据的本地性(Locality) Spark目前支持PROCESS_LOCAL(本地进程)、NODE_LOCAL(本地节点)、NO_PREF(没有喜好)、RACK_LOCAL(本地机架)、ANY(任何)几种。
+
+Spark涉及本地性数据只有两种:HadoopRDD和数据源于存储体系的RDD(即由CacheManager从BlockManager中读取，或者Streaming数据源RDD)
+
+什么是NO_PREF? 当Driver应用程序刚刚启动，Driver分配获得的Executor很可能还没有初始化完毕。所以会有一部分任务的本地化级别被设置为NO_PREF。如果是ShuffledRDD，其本地性始终是NO_PREF 对于这两种本地化级别是NO_PREF的情况，在任务分配时会被优先分配到非本地节点执行，达到一定的优化效果
+
+getAllowedLocalityLevel方法获取任务集允许使用的本地化级别
+
+* myLocalityLevels:当前TaskSetManager允许使用的本地化级别
+  computeValidLocalityLevels方法用于计算有效的本地化级别。以RPOCESS_LOCAL为例，如果存在Executor中有待执行的任务(pendingTasksForExecutor不为空) 且PROCESS_LOCAL本地化的等待时间不为0(调用getLocalityWait方法获得)且存在Executor已被激活(pendingTasksForExecutor中的ExecutorId有存在于TaskScheduler的activeExecutorIds中的) 那么允许的本地化级别里包括PROCESS_LOCAL
+* localityWaits：本地化级别等待时间
+getAllowedLocalityLevel方法步骤：
+1. 根据当前本地化级别索引(currentLocalityIndex刚开始为0)，获取此本地化级别的等待时长
+2. 如果当前时间与上次运行本地化时间(lastLaunchTime)之差大于等于上一步获得的时长并且当前本地化级别索引小于myLocalityLevels的索引范围，那么将第一步的时长增加到lastLaunchTime中，然后使currentLocalityIndex增加1,最后重新从第一步开始执行。
+
+##### 执行任务
+调用Executor的launchTask方法时，标志着任务执行阶段的开始。launchTask的执行过程如下
+  

@@ -20,3 +20,7 @@ ssh-keygen -t rsa
 
 $ python setup.py install --record files.txt
 $ cat files.txt | xargs rm -rf          #删除这些文件
+
+sudo docker container ls
+
+docker ps 显示正在运行的容器

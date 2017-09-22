@@ -52,9 +52,9 @@ export AIRFLOW_HOME=/usr/local/airflow
 export AIRFLOW_HOME=/home/yuzx/airflow
 
 # install from pypi using pip
-pip install -v airflow==1.7.1.3 -i https://pypi.douban.com/simple
-pip install -v airflow[hive]==1.7.1.3 -i https://pypi.douban.com/simple
-pip install -v airflow[password]==1.7.1.3 -i https://pypi.douban.com/simple
+pip install -v airflow==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
+pip install -v airflow[hive]==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
+pip install -v airflow[password]==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
 pip install -v fabric -i https://pypi.douban.com/simple
 
 # initialize the database
