@@ -206,4 +206,64 @@ getAllowedLocalityLevel方法步骤：
 
 ##### 执行任务
 调用Executor的launchTask方法时，标志着任务执行阶段的开始。launchTask的执行过程如下
-  
+
+调用Executor的launchTask方法时，标志着任务执行阶段的开始。launchTask执行过程：
+1. 创建TaskRunner,并将其与taskId、taskName及serializedTask添加到runningTasks=new ConcurrentHashMap[Long,TaskRunner]中。
+2. TaskRunner实现了Runnable接口(Scala中称为继承Runnable特质)，最后使用线程池执行TaskRunner
+
+线程执行时，会调用TaskRunner的run方法。run方法的处理动作包括状态更新、任务反序列化、任务运行。
+#### 状态更新
+调用execBackend的statusUpdate方法更新任务状态。若为LocalBackend为例，实际向LocalActor发送statusUpdate消息 LocalActor收到statusUpdate事件时，匹配执行TaskSchedulerImpl的statusUpdate方法，并根据Task的最新状态做一系列处理
+#### 任务还原
+所谓任务还原就是将Driver提交的Task在Executor上通过反序列化，更新依赖达到Task还原效果的过程。
+
+updateDependencies方法获取依赖是利用了Utils.fetchFile方法实现的。下载的jar文件还会添加到Executor自身类加载器的URL中。
+#### 任务运行
+TaskRunner最终调用Task的run方法来运行任务 runTask方法？之前submitMissingTasks对任务的RDD和ShuffleDependency进行过序列化操作，现在反序列化，得到RDD和ShuffleDependency. 接下来调用SortShuffleManager的getWriter方法获取partitionId指定分区的SortShuffleWriter 利用此Writer将计算的中间结果写入文件
+
+getWriter 参数mapId实际传入的是partitionId
+
+SortShuffleWriter负责计算结果的缓存处理及及持久化。RDD的iterator方法触发任务计算
+
+### 任务执行后续处理
+#### 计量统计与执行结果序列化
+1. 任务执行结果的简单序列化
+2. 计量统计，需要更新的指标有：
+* Executor反序列化消耗的时间
+* Executor实际执行任务消耗的时间
+* Executor执行垃圾回收消耗的时间
+* Executor执行结果序列化消耗的时间
+3. 将前两步得到的简单序列化结果和计量统计内容封装为DirectTaskResult,然后序列化
+#### 内存回收
+TaskRunner的run方法最后还会在finally中做一些清理工作，包括：
+1. 释放当前线程通过ShuffleMemoryManager获得的内存
+2. 释放当前线程在MemoryStore的unrollMemoryMap中展开占用的内存
+3. 释放当前线程用于聚合计算占用的内存
+4. 将当前Task从runnningTasks中移除。
+#### 执行结果处理
+任务完成的时候会发送一次statusUpdate消息，LocalActor会先匹配执行TaskSchedulerImpl的statusUpdate方法，然后调用reviveOffers方法调用其他的任务
+
+TaskSchedulerImpl的statusUpdate方法会从taskIdToTaskSetId、taskIdToExecutorId中移除此任务，并且调用TaskResultGetter的enqueueSuccessfulTask方法
+
+TaskResultGetter的enqueueSuccessfulTask和enqueueFailedTask方法，分别用于处理执行成功任务的返回结果和执行失败任务的返回结果
+
+。。。
+
+##### ResultTask任务的结果处理
+如果是ResultTask，步骤如下：
+1. 标识ActiveJob的finished里对应分区的任务为完成状态，并将已完成任务数numFinished加1
+2. 如果ActiveJob的所有任务都完成，则标记当前Stage完成并向listenerBus发送SparkListenerJobEnd事件
+3. 调用JobWaiter的taskSuccessed方法，以便通知JobWaiter有任务成功
+##### ShuffleMapTask任务的结果处理
+如果是ShuffleMapTask 步骤：
+1. 将Task的partitionId和MapStatus追加到Stage的outputLocs中
+2. 将当前Stage标记为完成，然后将当前Stage的shuffleId和outputLocs中的MapStatus注册到mapOutputTracker 注册的map任务状态将最终被reduce任务所用
+3. 如果Stage的outputLocs中某个分区的输出为Nil。那么说明任务失败了，这时需要再次提交此Stage
+4. 如果不存在Stage的outputLocs中某个分区的输出为Nil 那么说明所有任务执行成功了，这时需要遍历waitingStages中的Stage并将它们放入runningStages，最后调用submitMissingTasks方法逐个提交这些准备运行的Stage的任务。
+
+### 小结
+从RDD 入手，依次是RDD的实现分析、Stage的划分、提交Stage、提交Task、任务执行、执行结果处理等内容
+
+Spark通过一种阶梯式的本地化策略，在有效利用资源、节省网络I/O的同时提高了系统执行的效率。
+
+容错能力方面，Spark通过DAG构成的有向无环图可以在其中某些任务执行失败的情况下，通过重新提交任务达到容错。而那些执行成功的任务由于其结果数据已经在缓存中，所以不用重复计算
