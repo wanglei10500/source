@@ -208,6 +208,8 @@ private boolean termPredicate(
 
 启动的时候就是根据zoo.cfg里的配置，向各个节点广播投票，一般都是选投自己。然后收到投票后就会进行进行判断。如果某个节点收到的投票数超过一半，那么它就是leader了
 
+![spark](http://img.blog.csdn.net/20150815130507597)
+
 ## zookeeper client
 1. create 在给定的path上创建节点，类似文件系统路径 类型：永久节点、永久顺序节点、临时节点、临时顺序节点。
           永久节点创建即保留，临时节点会话过期自动删除，这个特性用于集群感知，应用启动时将自己的ip地址作为临时节点下面，可通过这个特性感知服务的集群有哪些活着的
@@ -222,7 +224,7 @@ private boolean termPredicate(
 ./zkServer.sh status
 
 连接zk集群客户端
-./zkCli.sh server 10.0.8.177:2181,10.0.8.178:2181,10.0.8.179:2181
+./zkCli.sh -server 10.0.8.177:2181,10.0.8.178:2181,10.0.8.179:2181
 
 查看当前zookeeper中包含的内容
 ls /
