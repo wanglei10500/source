@@ -7,6 +7,28 @@ categories: 经验分享
 ---
 
 
+二进制
+```
+1byte(B)=8bits(b)字节=8个二进制位 (字节)
+1(K/KB)=2^10bytes=1024bytes个字节
+1(M/MB)=2^20bytes=1048576bytes个字节
+1(G/GB)=2^30bytes=~
+1(T/TB)=2^40bytes=~
+```
+十进制
+```
+1bytes(B)=8bits(b)
+1K/KB=10^3bytes=1000 bytes
+1M/MB=10^6bytes=100 000 bytes
+1G/GB=10^9bytes=100 000 000bytes
+1T/TB=10^12bytes=100 000 000 000bytes
+```
+```
+1GB=1024MB
+   =1024*1024KB
+   =104*1024*1024byte
+
+```
 给一个超过100G大小的log file, log中存着IP地址, 设计算法找到出现次数最多的IP地址？
 与上题条件相同，如何找到top K的IP？如何直接用Linux系统命令实现？
 
