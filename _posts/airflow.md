@@ -38,7 +38,7 @@ sudo apt-get upgrade gcc
 # 安装python2.7 dev
 sudo apt-get install python2.7-dev
 ```
-
+libffi-dev
 ### PIP
 pip类似RedHat里面的yum，ubuntu下可使用命令安装pip
 ```
@@ -52,15 +52,19 @@ export AIRFLOW_HOME=/usr/local/airflow
 export AIRFLOW_HOME=/home/yuzx/airflow
 
 # install from pypi using pip
-pip install -v airflow==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
+S -i http://mirrors.aliyun.com/pypi/simple
 pip install -v airflow[hive]==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
 pip install -v airflow[password]==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
-pip install -v fabric -i https://pypi.douban.com/simple
+pip install -v airflow[celery]==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple
 
+pip install -v fabric -i http://mirrors.aliyun.com/pypi/simple
+pip install enum34
+pip install ipaddress
 # initialize the database
 airflow initdb
-
-
+pika
+pyminizip
+redis
 # start the web server, default port is 8080
 airflow webserver -p 8080
 ```
@@ -72,6 +76,7 @@ sudo apt-get install libmysqld-dev
 pip install mysql-python
 sql_alchemy_conn = mysql://root:mysql1@127.0.0.1:3306/airflow
 ```
+sudo apt-get install build-essential python3-dev libssl-dev libffi-dev libxml2 libxml2-dev libxslt1-dev zlib1g-dev
 
 ###  修改Executor
 有三个 Executor 可供选择, 分别是: SequentialExecutor 和 LocalExecutor 和 CeleryExecutor, SequentialExecutor仅仅适合做Demo(搭配Sqlite backend), LocalExecutor 和 CeleryExecutor 都可用于生产环境, CeleryExecutor 将使用 Celery 作为Task执行的引擎, 扩展性很好, 当然配置也更复杂, 需要先setup Celery的backend(包括RabbitMQ, Redis)等. 其实真正要求扩展性的场景并不多, 所以LocalExecutor 是一个很不错的选择了.
@@ -105,3 +110,4 @@ airflow scheduler
 
 
 sudo pip install --upgrade airflow
+pip install -v airflow==1.7.1.3 -i http://mirrors.aliyun.com/pypi/simple

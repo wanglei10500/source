@@ -78,8 +78,7 @@ RDD可以看做是对各种计算模型的统一抽象，Spark的计算过程主
 ### Spark基本架构
 从集群部署角度，Spark集群由以下部分组成:
 * Cluster Manager：Spark集群管理器，主要负责资源的分配与管理。集群管理器分配的资源属于一级分配，它将各个Worker上的内存、CPU等资源分配给应用程序，但不负责对Executor的资源分配
-* Worker:Spark的工作节点。 对Spark应用程序来说，由集群管理器分配得到资源的Worker节点主要负责以下工作。创建Executor,将资源和任务进一步分配给Executor 同步资源信息给Cluster Manager
-* Executor：执行计算任务的一线进程。主要负责任务的执行以及与Worker、Driver App的信息同步          
+h* Executor：执行计算任务的一线进程。主要负责任务的执行以及与Worker、Driver App的信息同步          
 * Driver App:客户端驱动程序，也可以理解为客户端应用程序，用于将任务程序转换为RDD和DAG，并与Cluster Manager进行通信与调度
 
 dirver->master: 提交Application，并告知需要多少资源(cores)

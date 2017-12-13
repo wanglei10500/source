@@ -31,9 +31,7 @@ categories: 经验分享
 ```
 给一个超过100G大小的log file, log中存着IP地址, 设计算法找到出现次数最多的IP地址？
 与上题条件相同，如何找到top K的IP？如何直接用Linux系统命令实现？
-
 链接：https://www.nowcoder.com/questionTerminal/4879439a1e444e8ebff2232d206e05e7
-来源：牛客网
 
 Hash分桶法：
 • 将100G文件分成1000份，将每个IP地址映射到相应文件中：file_id = hash(ip) % 1000
