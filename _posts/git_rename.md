@@ -57,3 +57,24 @@ git push origin dev-v2.5.0
 ```
 git branch -D
 ```
+
+### git syncing a fork
+
+```
+$ git fetch upstream
+
+$ git checkout branch-2.2
+
+$ git merge upstream/branch-2.2
+```
+
+### git stash
+```
+git stash 备份当前工作区内容 从最近的一次提交中读取相关内容，将当前的工作区内容保存到git栈中
+git pull /git merge upstream/master
+git stash pop 从stash中读取内容并恢复
+```
+```
+git stash list 显示git栈所有备份
+git stash clear 清空git栈
+```
